@@ -1,1 +1,1 @@
-# myTw-Mailer-Extended
+# myTW-Mailer
