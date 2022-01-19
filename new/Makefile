@@ -1,9 +1,8 @@
 #Makefile for myTW-Mailer
 all: test
 
-test: ldap.cpp
-	g++ -g -fPIC -Wall -o ldap ldap.cpp -std=c++17
-
+test: myldap.cpp
+	g++ -std=c++11 -Wall -o myldap myldap.cpp -lldap -llber
 
 clean:
 	rm -f ldap
