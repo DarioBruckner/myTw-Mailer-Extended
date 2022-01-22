@@ -13,11 +13,12 @@
 #include <string.h>
 #include <signal.h>
 #include <string>
+#include <regex>
 #include "jsoncpp/jsoncpp.cpp"
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#define BUF 1024
+#define BUF 4096
 #define PORT 6543
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -26,12 +27,13 @@ int abortRequested = 0;
 int create_socket = -1;
 int new_socket = -1;
 std::string directory = "";
+static pthread_mutex_t thread_mutex = PTHREAD_MUTEX_INITIALIZER;
+std::regex username_regex("^[a-zA-Z0-9]*$");
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void *clientCommunication(void *data);
 void signalHandler(int sig);
-void child(void *data);
+void *child(void *data);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -44,7 +46,7 @@ void print_usage(char *programm_name)
 
 int main(int argc, char **argv)
 {
-   // pid_t pid;
+   pid_t pid;
    socklen_t addrlen;
    struct sockaddr_in address, cliaddress;
    int reuseValue = 1;
@@ -187,20 +189,20 @@ int main(int argc, char **argv)
       printf("Client connected from %s:%d...\n",
              inet_ntoa(cliaddress.sin_addr),
              ntohs(cliaddress.sin_port));
-      clientCommunication(&new_socket);
-      // pid = fork();
-      // switch(pid){
-      //     case -1:
-      //        printf("Child could not be started");
-      //        exit(EXIT_FAILURE);
-      //        break;
-      //     case 0:
-      //        child(&new_socket);
-      //        exit(EXIT_SUCCESS);
-      //        break;
-      //     default:
-      //        break;
-      // }
+
+      pid = fork();
+      switch(pid){
+         case -1:
+         printf("Child could not be started");
+            exit(EXIT_FAILURE);
+            break;
+         case 0:
+            child(&new_socket);
+            exit(EXIT_SUCCESS);
+            break;
+         default:
+            break;
+      }
       new_socket = -1;
    }
 
@@ -223,6 +225,7 @@ int main(int argc, char **argv)
 //checks if the Datastructe has been already used or not
 void checkifDatastructExsists(std::string location)
 {
+
    FILE *file;
    if ((file = fopen(location.c_str(), "r")))
    {
@@ -252,6 +255,31 @@ bool writetoFile(std::string location, std::string content)
    }
 }
 
+void process_lock(void)
+{
+        int ret;
+
+	ret = pthread_mutex_lock(&thread_mutex);
+        if (ret != 0)
+                _exit(EXIT_FAILURE);
+}
+
+void process_unlock(void)
+{
+        int ret;
+
+	ret = pthread_mutex_unlock(&thread_mutex);
+        if (ret != 0)
+                _exit(EXIT_FAILURE);
+}
+
+bool matchStringWithRegex(std::string testString){
+
+   return std::regex_match(testString, username_regex);
+
+}
+
+
 //splits the string at the given character
 std::string SplitString(std::string &str, const char c)
 {
@@ -269,7 +297,7 @@ std::string sendCommand(std::string message)
    const std::string reciever = SplitString(message, '\n');//reciever
 
    const std::string topic = SplitString(message, '\n');   //subject
-   if (topic.length() > 80)
+   if (topic.length() > 80 || sender.length() > 8 || reciever.length() > 8)
    {
       return "ERR\n";
    }
@@ -307,7 +335,11 @@ std::string sendCommand(std::string message)
       }
    }
    
+   process_lock();
+
    checkifDatastructExsists(location);
+
+   process_unlock();
 
    std::ifstream datastructure(location, std::ifstream::binary); //filestream of the datastructure
    Json::Value data; //the data of the datastructre
@@ -323,6 +355,8 @@ std::string sendCommand(std::string message)
    data["inbox"].append(newData);
    std::string output = write.write(data);
 
+   process_lock();
+
    if (writetoFile(location, output))
    {
       std::cout << "Message successfully saved" << std::endl;
@@ -330,8 +364,10 @@ std::string sendCommand(std::string message)
    else
    {
       std::cout << "Error saving Message" << std::endl;
+      process_unlock();
       return "ERR\n";
    }
+   process_unlock();
    return "OK\n";
 }
 
@@ -348,11 +384,15 @@ std::string readCommand(std::string message)
 
    // Trys to read the file
    std::ifstream user_file(directory + "/" + user + "/datastructure.json", std::ifstream::binary);
-   if (user_file.fail())
-   {
+   if( user.length() > 8 || user_file.fail()){
       return "ERR\n";
    }
+
+   process_lock();
+
    user_file >> jsonValues;
+
+   process_unlock();
 
    if (jsonValues.isMember("inbox"))
    {
@@ -401,9 +441,16 @@ std::string listCommand(std::string message)
    std::ifstream user_file(directory + "/" + user + "/datastructure.json", std::ifstream::binary);
    if (user_file.fail())
    {
-      return "ERR\n0\n";
+      return "0\n";
+   }else if(user.length > 8){
+      return "ERR\n";
    }
+
+   process_lock();
+
    user_file >> jsonValues;
+
+   process_unlock();
 
    // Counts the messages and returns all the subject titles
    if (jsonValues.isMember("inbox"))
@@ -429,7 +476,7 @@ std::string delCommand(std::string message)
    const std::string index = SplitString(message, '\n'); //the index of the message that it deleted
    std::string finaldirectory = directory + "/" + user;
 
-   if (!std::filesystem::exists(finaldirectory))
+   if (!std::filesystem::exists(finaldirectory) || user.length() > 8)
    {
       return "ERR\n";
    }
@@ -439,7 +486,12 @@ std::string delCommand(std::string message)
    Json::Value data;
    Json::FastWriter writer;
 
+   process_lock();
+
    datastructure >> data;
+
+   process_unlock();
+
    int ind = stoi(index);
    ind--;
    int size = data["inbox"].size();
@@ -460,21 +512,26 @@ std::string delCommand(std::string message)
 
    std::string finaldata = writer.write(data);
 
+   process_lock();
+
    writetoFile(finaldirectory + "/datastructure.json", finaldata);
+
+   process_unlock();
 
    return "OK\n";
 }
 
-void *clientCommunication(void *data)
+void *child(void *data)
 {
    char buffer[BUF];
-   char return_buffer[BUF];
+   char return_buffer[BUF+BUF];
    std::string result;
    int size;
    int *current_socket = (int *)data;
    // FILE * file;
    std::vector<std::string> command;
    std::string word;
+   std::string user;
 
    ////////////////////////////////////////////////////////////////////////////
    // SEND welcome message
