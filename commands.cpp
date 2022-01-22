@@ -21,7 +21,7 @@
 #include <string.h>
 #include <signal.h>
 #include <string>
-#include "../jsoncpp/jsoncpp.cpp"
+#include "jsoncpp/jsoncpp.cpp"
 
 class Commands
 { // The class

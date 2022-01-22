@@ -13,7 +13,7 @@
 #include <string.h>
 #include <signal.h>
 #include <string>
-#include "new/commands.cpp"
+#include "commands.cpp"
 
 ///////////////////////////////////////////////////////////////////////////////
 
