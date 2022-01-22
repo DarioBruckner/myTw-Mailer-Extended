@@ -58,9 +58,18 @@ private:
         }
     }
 
+
+    bool matchStringWithRegex(std::string testString){
+        return std::regex_match(testString, username_regex);
+
+    }
+
 public: // Access specifier
     std::string Directory = "";
     std::string CurrentUser = "";
+    static pthread_mutex_t thread_mutex = PTHREAD_MUTEX_INITIALIZER;
+    std::regex username_regex("^[a-zA-Z0-9]*$");
+
     // splits the string at the given character
     std::string SplitString(std::string &str, const char c)
     {
@@ -68,6 +77,25 @@ public: // Access specifier
         const std::string ret = str.substr(0, index);
         str.erase(0, index + 1);
         return ret;
+    }
+
+
+    void process_lock(void)
+    {
+        int ret;
+
+	    ret = pthread_mutex_lock(&thread_mutex);
+        if (ret != 0)
+                _exit(EXIT_FAILURE);
+    }
+
+    void process_unlock(void)
+    {
+        int ret;
+
+	    ret = pthread_mutex_unlock(&thread_mutex);
+        if (ret != 0)
+                _exit(EXIT_FAILURE);
     }
 
     // Trys to login a user using ldap
@@ -191,7 +219,7 @@ public: // Access specifier
         const std::string reciever = SplitString(userInput, '\n'); // reciever
 
         const std::string topic = SplitString(userInput, '\n'); // subject
-        if (topic.length() > 80)
+        if (topic.length() > 80 || sender.length() > 8 || reciever.length() > 8)
         {
             return "ERR\n";
         }
@@ -231,7 +259,11 @@ public: // Access specifier
             }
         }
 
+        process_lock();
+
         checkifDatastructExsists(location);
+
+        process_unlock();
 
         std::ifstream datastructure(location, std::ifstream::binary); // filestream of the datastructure
         Json::Value data;                                             // the data of the datastructre
@@ -247,6 +279,7 @@ public: // Access specifier
         data["inbox"].append(newData);
         std::string output = write.write(data);
 
+        process_lock();
         if (writetoFile(location, output))
         {
             std::cout << "Message successfully saved" << std::endl;
@@ -254,8 +287,10 @@ public: // Access specifier
         else
         {
             std::cout << "Error saving Message" << std::endl;
+            process_unlock();
             return "ERR\n";
         }
+        process_unlock();
         return "OK\n";
     }
     // Reads the desired userInput out of the json file
@@ -270,11 +305,14 @@ public: // Access specifier
 
         // Trys to read the file
         std::ifstream user_file(Directory + "/" + CurrentUser + "/datastructure.json", std::ifstream::binary);
-        if (user_file.fail())
-        {
+        if( user.length() > 8 || user_file.fail()){
             return "ERR\n";
         }
+        process_lock();
+
         user_file >> jsonValues;
+
+        process_unlock();
 
         if (jsonValues.isMember("inbox"))
         {
@@ -322,8 +360,15 @@ public: // Access specifier
         if (user_file.fail())
         {
             return "0\n";
+        }else if(user.length() > 8){
+            return "ERR\n";
         }
+
+        process_lock();
+
         user_file >> jsonValues;
+
+        process_unlock();
 
         // Counts the userInputs and returns all the subject titles
         if (jsonValues.isMember("inbox"))
@@ -357,7 +402,13 @@ public: // Access specifier
         Json::Value data;
         Json::FastWriter writer;
 
+        process_lock();
+
         datastructure >> data;
+
+        process_unlock();
+
+
         int ind = stoi(index);
         ind--;
         int size = data["inbox"].size();
@@ -378,7 +429,11 @@ public: // Access specifier
 
         std::string finaldata = writer.write(data);
 
+        process_lock();
+
         writetoFile(finaldirectory + "/datastructure.json", finaldata);
+
+        process_unlock();
 
         return "OK\n";
     }
