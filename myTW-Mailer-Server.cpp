@@ -13,7 +13,7 @@
 #include <string.h>
 #include <signal.h>
 #include <string>
-#include "jsoncpp/jsoncpp.cpp"
+#include "new/commands.cpp"
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -25,7 +25,7 @@
 int abortRequested = 0;
 int create_socket = -1;
 int new_socket = -1;
-std::string directory = "";
+Commands commands;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -53,12 +53,16 @@ int main(int argc, char **argv)
    unsigned short port;
 
    // Gets IP and Port if the correct number of arguments is given
-   if (argc == 3){
-      if(std::filesystem::exists(argv[2])){
+   if (argc == 3)
+   {
+      if (std::filesystem::exists(argv[2]))
+      {
          std::stringstream intPort(argv[1]);
          intPort >> port;
-         directory = argv[2];
-      }else{
+         commands.Directory = argv[2];
+      }
+      else
+      {
          printf("Directory not found \n");
          print_usage(programm_name);
          return EXIT_FAILURE;
@@ -78,9 +82,9 @@ int main(int argc, char **argv)
 
       return EXIT_FAILURE;
    }
-   
+
    // Prints the selectet Directory and Port
-   std::cout << "Directory: " << directory << "\n";
+   std::cout << "Directory: " << commands.Directory << "\n";
    printf("Port: %d\n", port);
 
    ////////////////////////////////////////////////////////////////////////////
@@ -220,250 +224,6 @@ int main(int argc, char **argv)
 
    return EXIT_SUCCESS;
 }
-//checks if the Datastructe has been already used or not
-void checkifDatastructExsists(std::string location)
-{
-   FILE *file;
-   if ((file = fopen(location.c_str(), "r")))
-   {
-      fclose(file);
-   }
-   else
-   {
-      file = fopen(location.c_str(), "w");
-      fputs("{\"inbox\" : []}", file);
-      fclose(file);
-   }
-}
-//writes String into the given file
-bool writetoFile(std::string location, std::string content)
-{
-   std::ofstream datastr(location);
-   if (datastr.is_open())
-   {
-      datastr << content;
-      datastr.close();
-      return true;
-   }
-   else
-   {
-      datastr.close();
-      return false;
-   }
-}
-
-//splits the string at the given character
-std::string SplitString(std::string &str, const char c)
-{
-   const size_t index = str.find(c);
-   const std::string ret = str.substr(0, index);
-   str.erase(0, index + 1);
-   return ret;
-}
-
-//Takes data provieded by the user and adds them to the datastructure
-std::string sendCommand(std::string message)
-{
-   const std::string sender = SplitString(message, '\n');  //Sender
-
-   const std::string reciever = SplitString(message, '\n');//reciever
-
-   const std::string topic = SplitString(message, '\n');   //subject
-   if (topic.length() > 80)
-   {
-      return "ERR\n";
-   }
-
-   std::stringstream tmp;
-   //filterung \n for read function
-   while (message.find("\n", 0) != std::string::npos)
-   {
-      tmp << message.substr(0, message.find("\n", 0)) << "\\";
-      if (message.find("\n", 0) + 1 <= message.size())
-      {
-         message = message.substr(message.find("\n", 0) + 1, message.size());
-      }
-      else
-      {
-         message = "";
-      }
-   }
-   tmp << message << "\\";
-   const std::string content = tmp.str(); //message content
-
-   //depending if the user added a / to the directory or not adding a /
-   if (directory.back() != '/')
-   {
-      directory.append("/");
-   }
-   std::string finaldirectory = directory + reciever; //directory of the user specific datastructure
-   std::string location = finaldirectory + "/datastructure.json"; //path of the datastructure
-
-   //checks if its the first message and if the directory exists and if not creats it.
-   if (!std::filesystem::exists(finaldirectory)){
-      if (!std::filesystem::create_directory(finaldirectory)){
-         std::cout << "Error creating directory" << std::endl;
-         return "ERR\n";
-      }
-   }
-   
-   checkifDatastructExsists(location);
-
-   std::ifstream datastructure(location, std::ifstream::binary); //filestream of the datastructure
-   Json::Value data; //the data of the datastructre
-   datastructure >> data;
-   Json::Value newData; //the new data added to the existing data
-   Json::FastWriter write; //json to string converter for easy writing into the file
-
-   newData["sender"] = sender;
-   newData["reciever"] = reciever;
-   newData["subject"] = topic;
-   newData["message"] = content;
-
-   data["inbox"].append(newData);
-   std::string output = write.write(data);
-
-   if (writetoFile(location, output))
-   {
-      std::cout << "Message successfully saved" << std::endl;
-   }
-   else
-   {
-      std::cout << "Error saving Message" << std::endl;
-      return "ERR\n";
-   }
-   return "OK\n";
-}
-
-// Reads the desired message out of the json file
-std::string readCommand(std::string message)
-{
-   Json::StreamWriterBuilder builder;
-   Json::Value jsonValues;
-   int message_id;
-   std::string user = SplitString(message, '\n');       // Gets username
-   std::stringstream intId(SplitString(message, '\n')); // Gets the message ID
-   intId >> message_id;                                 // Converts message ID in int
-   message_id -= 1;                                     // Converts ID to index
-
-   // Trys to read the file
-   std::ifstream user_file(directory + "/" + user + "/datastructure.json", std::ifstream::binary);
-   if (user_file.fail())
-   {
-      return "ERR\n";
-   }
-   user_file >> jsonValues;
-
-   if (jsonValues.isMember("inbox"))
-   {
-      const Json::Value inbox = jsonValues["inbox"];
-      int size = inbox.size();
-
-      // Read data out of json value
-      if (message_id < size)
-      {
-         std::stringstream ss;
-         ss << "OK\n";
-         ss << Json::writeString(builder, inbox[message_id]["sender"]).substr(1, Json::writeString(builder, inbox[message_id]["sender"]).size() - 2) << "\n";
-         ss << Json::writeString(builder, inbox[message_id]["reciever"]).substr(1, Json::writeString(builder, inbox[message_id]["reciever"]).length() - 2) << "\n";
-         ss << Json::writeString(builder, inbox[message_id]["subject"]).substr(1, Json::writeString(builder, inbox[message_id]["subject"]).length() - 2) << "\n";
-         std::string message_text = Json::writeString(builder, inbox[message_id]["message"]).substr(1, Json::writeString(builder, inbox[message_id]["message"]).length() - 2);
-
-         // Loop to replace \\ with \n
-         std::stringstream tmp;
-         while (message_text.find("\\", 0) != std::string::npos)
-         {
-            tmp << message_text.substr(0, message_text.find("\\", 0)) << "\n";
-            if (message_text.find("\\", 0) + 2 <= message_text.size())
-            {
-               message_text = message_text.substr(message_text.find("\\", 0) + 2, message_text.size());
-            }
-            else
-            {
-               message_text = "";
-            }
-         }
-         ss << tmp.str() << message_text;
-         return ss.str();
-      }
-   }
-   return "ERR\n";
-}
-
-// Lists subjects of all messages of the desired user
-std::string listCommand(std::string message)
-{
-   std::string user = SplitString(message, '\n'); // Gets Username
-   Json::Value jsonValues;
-   Json::StreamWriterBuilder builder;
-
-   // Trys to read the JSON File
-   std::ifstream user_file(directory + "/" + user + "/datastructure.json", std::ifstream::binary);
-   if (user_file.fail())
-   {
-      return "ERR\n0\n";
-   }
-   user_file >> jsonValues;
-
-   // Counts the messages and returns all the subject titles
-   if (jsonValues.isMember("inbox"))
-   {
-      const Json::Value inbox = jsonValues["inbox"];
-      std::stringstream ss;
-      int size = inbox.size();
-      ss << "OK\n";
-      ss << inbox.size() << "\n";
-      for (int i = 0; i < size; i++)
-      {
-         ss << Json::writeString(builder, inbox[i]["subject"]).substr(1, Json::writeString(builder, inbox[i]["subject"]).length() - 2) << "\n";
-      }
-      return ss.str();
-   }
-   return "ERR\n0\n";
-}
-
-std::string delCommand(std::string message)
-{
-
-   const std::string user = SplitString(message, '\n');  //the target username
-   const std::string index = SplitString(message, '\n'); //the index of the message that it deleted
-   std::string finaldirectory = directory + "/" + user;
-
-   if (!std::filesystem::exists(finaldirectory))
-   {
-      return "ERR\n";
-   }
-
-   std::ifstream datastructure(finaldirectory + "/datastructure.json", std::ifstream::binary);
-
-   Json::Value data;
-   Json::FastWriter writer;
-
-   datastructure >> data;
-   int ind = stoi(index);
-   ind--;
-   int size = data["inbox"].size();
-   if (size == 0 || ind > size)
-   {
-      return "ERR\n";
-   }
-   Json::Value new_items;
-   new_items["inbox"] = Json::arrayValue;
-   for (int i = 0; i < size; i++)
-   {
-      if (i != ind)
-      {
-         new_items["inbox"].append(data["inbox"][i]);
-      }
-   }
-   data["inbox"] = new_items["inbox"];
-
-   std::string finaldata = writer.write(data);
-
-   writetoFile(finaldirectory + "/datastructure.json", finaldata);
-
-   return "OK\n";
-}
 
 void *clientCommunication(void *data)
 {
@@ -522,34 +282,44 @@ void *clientCommunication(void *data)
 
       buffer[size] = '\0';
 
-      std::string message = buffer;
+      std::string userInput = buffer;
 
-      std::string command = SplitString(message, '\n');
-
-      if (command == "SEND")
+      std::string command = commands.SplitString(userInput, '\n');
+      if (command == "LOGIN")
       {
          std::cout << "Command" << command << std::endl;
-         result = sendCommand(message);
+         if (commands.Login(userInput))
+            result = "OK\n";
+         else
+            result = "ERR\n";
       }
-      else if (command == "LIST")
+      else if (commands.CurrentUser.compare("") != 0)
       {
-         std::cout << "Command" << command << std::endl;
-         result = listCommand(message);
-      }
-      else if (command == "READ")
-      {
-         std::cout << "Command" << command << std::endl;
-         result = readCommand(message);
-      }
-      else if (command == "DEL")
-      {
-         std::cout << "Command" << command << std::endl;
-         result = delCommand(message);
+         if (command == "SEND")
+         {
+            std::cout << "Command" << command << std::endl;
+            result = commands.CreateMessage(userInput);
+         }
+         else if (command == "LIST")
+         {
+            std::cout << "Command" << command << std::endl;
+            result = commands.ListMessages(userInput);
+         }
+         else if (command == "READ")
+         {
+            std::cout << "Command" << command << std::endl;
+            result = commands.GetMessage(userInput);
+         }
+         else if (command == "DEL")
+         {
+            std::cout << "Command" << command << std::endl;
+            result = commands.DeleteMessage(userInput);
+         }
+         else
+            printf("Message received: %s\n", buffer); // ignore error
       }
       else
-      {
-         printf("Message received: %s\n", buffer); // ignore error
-      }
+         result = "ERR\n";
 
       strcpy(return_buffer, result.c_str());
       send(*current_socket, return_buffer, strlen(return_buffer), 0);
