@@ -18,7 +18,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#define BUF 4096
+#define BUF 1024
 #define PORT 6543
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -442,7 +442,7 @@ std::string listCommand(std::string message)
    if (user_file.fail())
    {
       return "0\n";
-   }else if(user.length > 8){
+   }else if(user.length() > 8){
       return "ERR\n";
    }
 

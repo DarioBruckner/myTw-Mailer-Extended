@@ -13,7 +13,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#define BUF 4096
+#define BUF 1024
 #define PORT 6543
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -28,27 +28,10 @@ void print_usage(char *programm_name)
 // Asks the user for a username till a valid username is entered
 std::string get_username()
 {
-   std::string username;
-   bool valid;
-   do
-   {
-      valid = true;
-      printf("Username Guidelines: 1 to 8 chars [a-z, 0-9]\n");
-      std::getline(std::cin, username);
-      // Checks if the length is valid
-      if (username.length() < 1 || username.length() > 8)
-         valid = false;
-      else
-      {
-         // Checks each character
-         for (std::string::size_type i = 0; i < username.size(); i++)
-         {
-            // checks if the character is in range of 0-9 or a-z
-            if ((username[i] < 48 || username[i] > 57) && (username[i] < 97 || username[i] > 122))
-               valid = false;
-         }
-      }
-   } while (!valid);
+   std::string username;   
+   printf("Username Guidelines: 1 to 8 chars [a-z, 0-9]\n");
+   std::getline(std::cin, username);
+      
    return username;
 }
 
@@ -69,11 +52,9 @@ std::string read_send_message()
 
    // Subject
    printf("Enter a subject\n");
-   do
-   {
-      printf("Subject Guideline: 1 to 80 chars\n");
-      std::getline(std::cin, line);
-   } while (line.length() < 1 || line.length() > 80);
+   printf("Subject Guideline: 1 to 80 chars\n");
+   std::getline(std::cin, line);
+   
    ss << line << "\n";
 
    // Message
@@ -152,6 +133,106 @@ std::string read_del_message()
    return ss.str();
 }
 
+bool send_to_server(std::string result, int create_socket){
+   char buffer[BUF];
+   strcpy(buffer, result.c_str());
+   int size = strlen(buffer);
+   // remove new-line signs from string at the end
+   if (buffer[size - 2] == '\r' && buffer[size - 1] == '\n')
+   {
+      size -= 2;
+      buffer[size] = 0;
+   }
+      else if (buffer[size - 1] == '\n')
+   {
+      --size;
+      buffer[size] = 0;
+   }
+
+   //////////////////////////////////////////////////////////////////////
+   // SEND DATA
+   // https://man7.org/linux/man-pages/man2/send.2.html
+   // send will fail if connection is closed, but does not set
+   // the error of send, but still the count of bytes sent
+   if ((send(create_socket, buffer, size, 0)) == -1)
+   {
+      // in case the server is gone offline we will still not enter
+      // this part of code: see docs: https://linux.die.net/man/3/send
+      // >> Successful completion of a call to send() does not guarantee
+      // >> delivery of the message. A return value of -1 indicates only
+      // >> locally-detected errors.
+      // ... but
+      // to check the connection before send is sense-less because
+      // after checking the communication can fail (so we would need
+      // to have 1 atomic operation to check...)
+      perror("send error");
+      return false;
+   }
+   return true;
+
+}
+
+std::string recieve_from_server(int *size, int create_socket, char* buffer){
+   //////////////////////////////////////////////////////////////////////
+   // RECEIVE FEEDBACK
+   // consider: reconnect handling might be appropriate in somes cases
+   //           How can we determine that the command sent was received
+   //           or not?
+   //           - Resend, might change state too often.
+   //           - Else a command might have been lost.
+   //
+   // solution 1: adding meta-data (unique command id) and check on the
+   //             server if already processed.
+   // solution 2: add an infrastructure component for messaging (broker)
+   //
+   *size = recv(create_socket, buffer, BUF - 1, 0);
+   
+   
+   buffer[*size] = '\0';
+   // printf("<< %s\n", buffer); // ignore error
+
+   std::string ret(buffer, strlen(buffer));
+   std::cout << ret;
+   return ret;
+}
+   
+
+
+bool check_if_errors(std::string ret, int size){
+   
+
+   if (size == -1){
+      perror("recv error");
+      return true;
+   }else if (size == 0){
+      printf("Server closed remote socket\n"); // ignore error
+      return true;
+   }
+   return false;
+}
+
+bool send_and_recieve(int status, std::string result, int *size, bool *isError, int create_socket, char* buffer){
+   if(status != -1){
+      send_to_server(result, create_socket);
+   }else{
+      return false;
+   }
+
+   std::string ret = recieve_from_server(size, create_socket, buffer);
+   int sized = *size;
+
+   *isError = check_if_errors(ret, sized);
+
+   if (strcmp("ERR", ret.substr(0, 3).c_str()) == 1){
+      fprintf(stderr, "Guidelines not fulfilled\n");
+      return true;
+   }else{
+      return false;
+   }
+
+}
+
+
 int main(int argc, char **argv)
 {
    int create_socket;
@@ -160,23 +241,27 @@ int main(int argc, char **argv)
    int size;
    int status;
    char *programm_name;
+   bool isError;
    programm_name = argv[0];
    std::string ip;
    std::string result;
    unsigned short port;
    std::string line;
 
+   //int c;
    // Gets IP and Port if the correct number of arguments is given
-   if (argc == 3)
-   {
-      ip = argv[1];
-      std::stringstream intPort(argv[2]);
-      intPort >> port;
-   }
-   else
-   {
-      print_usage(programm_name);
-   }
+
+   //while(c = getopt(argc, argv, "wtf") != -1){
+      if (argc == 3){
+         ip = argv[1];
+         std::stringstream intPort(argv[2]);
+         intPort >> port;
+      }else{
+         print_usage(programm_name);
+      }
+   //}
+
+   
 
    // Checks if the port is valid
    if (port <= 0 || port > 65535)
@@ -261,23 +346,31 @@ int main(int argc, char **argv)
       std::getline(std::cin, line);
       if (line == "SEND")
       {
-         result = read_send_message();
-         status = 1;
+         do{
+            result = read_send_message();
+            status = 1;
+         }while(send_and_recieve(status, result, &size, &isError, create_socket, buffer));
       }
       else if (line == "LIST")
       {
-         result = read_list_message();
-         status = 1;
+         do{
+            result = read_list_message();
+            status = 1;
+         }while(send_and_recieve(status, result, &size, &isError, create_socket, buffer));
       }
       else if (line == "READ")
       {
-         result = read_read_message();
-         status = 1;
+         do{
+            result = read_read_message();
+            status = 1;
+         }while(send_and_recieve(status, result, &size, &isError, create_socket, buffer));
       }
       else if (line == "DEL")
       {
-         result = read_del_message();
-         status = 1;
+         do{
+            result = read_del_message();
+            status = 1;
+         }while(send_and_recieve(status, result, &size, &isError, create_socket, buffer));
       }
       else if (line == "QUIT")
       {
@@ -288,84 +381,9 @@ int main(int argc, char **argv)
       {
          printf("Command not recogniced!\n");
          status = -1;
-      }
+      }      
 
-      if (status != -1)
-      {
-         char buffer[BUF];
-         strcpy(buffer, result.c_str());
-         int size = strlen(buffer);
-         // remove new-line signs from string at the end
-         if (buffer[size - 2] == '\r' && buffer[size - 1] == '\n')
-         {
-            size -= 2;
-            buffer[size] = 0;
-         }
-         else if (buffer[size - 1] == '\n')
-         {
-            --size;
-            buffer[size] = 0;
-         }
-
-         //////////////////////////////////////////////////////////////////////
-         // SEND DATA
-         // https://man7.org/linux/man-pages/man2/send.2.html
-         // send will fail if connection is closed, but does not set
-         // the error of send, but still the count of bytes sent
-         if ((send(create_socket, buffer, size, 0)) == -1)
-         {
-            // in case the server is gone offline we will still not enter
-            // this part of code: see docs: https://linux.die.net/man/3/send
-            // >> Successful completion of a call to send() does not guarantee
-            // >> delivery of the message. A return value of -1 indicates only
-            // >> locally-detected errors.
-            // ... but
-            // to check the connection before send is sense-less because
-            // after checking the communication can fail (so we would need
-            // to have 1 atomic operation to check...)
-            perror("send error");
-            break;
-         }
-
-         //////////////////////////////////////////////////////////////////////
-         // RECEIVE FEEDBACK
-         // consider: reconnect handling might be appropriate in somes cases
-         //           How can we determine that the command sent was received
-         //           or not?
-         //           - Resend, might change state too often.
-         //           - Else a command might have been lost.
-         //
-         // solution 1: adding meta-data (unique command id) and check on the
-         //             server if already processed.
-         // solution 2: add an infrastructure component for messaging (broker)
-         //
-         size = recv(create_socket, buffer, BUF - 1, 0);
-         if (size == -1)
-         {
-            perror("recv error");
-            break;
-         }
-         else if (size == 0)
-         {
-            printf("Server closed remote socket\n"); // ignore error
-            break;
-         }
-         else
-         {
-            buffer[size] = '\0';
-            // printf("<< %s\n", buffer); // ignore error
-
-            std::string ret(buffer, strlen(buffer));
-            std::cout << ret;
-            if (strcmp("OK", ret.substr(0, 2).c_str()) != 0)
-            {
-               fprintf(stderr, "<< Server error occured, abort\n");
-               break;
-            }
-         }
-      }
-
-   } while (line != "QUIT");
+   } while (line != "QUIT" && isError == false);
 
    ////////////////////////////////////////////////////////////////////////////
    // CLOSES THE DESCRIPTOR
