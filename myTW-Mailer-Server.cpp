@@ -15,6 +15,7 @@
 #include <string>
 #include <regex>
 #include "jsoncpp/jsoncpp.cpp"
+#include "commands.cpp"
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -29,6 +30,7 @@ int new_socket = -1;
 std::string directory = "";
 static pthread_mutex_t thread_mutex = PTHREAD_MUTEX_INITIALIZER;
 std::regex username_regex("^[a-zA-Z0-9]*$");
+Commands commands;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -55,12 +57,16 @@ int main(int argc, char **argv)
    unsigned short port;
 
    // Gets IP and Port if the correct number of arguments is given
-   if (argc == 3){
-      if(std::filesystem::exists(argv[2])){
+   if (argc == 3)
+   {
+      if (std::filesystem::exists(argv[2]))
+      {
          std::stringstream intPort(argv[1]);
          intPort >> port;
-         directory = argv[2];
-      }else{
+         commands.Directory = argv[2];
+      }
+      else
+      {
          printf("Directory not found \n");
          print_usage(programm_name);
          return EXIT_FAILURE;
@@ -80,9 +86,9 @@ int main(int argc, char **argv)
 
       return EXIT_FAILURE;
    }
-   
+
    // Prints the selectet Directory and Port
-   std::cout << "Directory: " << directory << "\n";
+   std::cout << "Directory: " << commands.Directory << "\n";
    printf("Port: %d\n", port);
 
    ////////////////////////////////////////////////////////////////////////////
@@ -579,34 +585,44 @@ void *child(void *data)
 
       buffer[size] = '\0';
 
-      std::string message = buffer;
+      std::string userInput = buffer;
 
-      std::string command = SplitString(message, '\n');
-
-      if (command == "SEND")
+      std::string command = commands.SplitString(userInput, '\n');
+      if (command == "LOGIN")
       {
          std::cout << "Command" << command << std::endl;
-         result = sendCommand(message);
+         if (commands.Login(userInput))
+            result = "OK\n";
+         else
+            result = "ERR\n";
       }
-      else if (command == "LIST")
+      else if (commands.CurrentUser.compare("") != 0)
       {
-         std::cout << "Command" << command << std::endl;
-         result = listCommand(message);
-      }
-      else if (command == "READ")
-      {
-         std::cout << "Command" << command << std::endl;
-         result = readCommand(message);
-      }
-      else if (command == "DEL")
-      {
-         std::cout << "Command" << command << std::endl;
-         result = delCommand(message);
+         if (command == "SEND")
+         {
+            std::cout << "Command" << command << std::endl;
+            result = commands.CreateMessage(userInput);
+         }
+         else if (command == "LIST")
+         {
+            std::cout << "Command" << command << std::endl;
+            result = commands.ListMessages(userInput);
+         }
+         else if (command == "READ")
+         {
+            std::cout << "Command" << command << std::endl;
+            result = commands.GetMessage(userInput);
+         }
+         else if (command == "DEL")
+         {
+            std::cout << "Command" << command << std::endl;
+            result = commands.DeleteMessage(userInput);
+         }
+         else
+            printf("Message received: %s\n", buffer); // ignore error
       }
       else
-      {
-         printf("Message received: %s\n", buffer); // ignore error
-      }
+         result = "ERR\n";
 
       strcpy(return_buffer, result.c_str());
       send(*current_socket, return_buffer, strlen(return_buffer), 0);
