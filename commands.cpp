@@ -12,10 +12,10 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <iostream>
 #include <sstream>
 #include <vector>
 #include <fstream>
+#include <regex>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,9 +23,14 @@
 #include <string>
 #include "jsoncpp/jsoncpp.cpp"
 
+
 class Commands
 { // The class
-private:
+
+
+
+
+private: 
     // checks if the Datastructe has been already used or not
     void checkifDatastructExsists(std::string location)
     {
@@ -41,6 +46,14 @@ private:
             fclose(file);
         }
     }
+
+    bool matchStringWithRegex(std::string testString){
+        return std::regex_match(testString, username_regex);
+
+    }
+
+public: // Access specifier
+
     // writes String into the given file
     bool writetoFile(std::string location, std::string content)
     {
@@ -59,16 +72,8 @@ private:
     }
 
 
-    bool matchStringWithRegex(std::string testString){
-        return std::regex_match(testString, username_regex);
-
-    }
-
-public: // Access specifier
     std::string Directory = "";
     std::string CurrentUser = "";
-    static pthread_mutex_t thread_mutex = PTHREAD_MUTEX_INITIALIZER;
-    std::regex username_regex("^[a-zA-Z0-9]*$");
 
     // splits the string at the given character
     std::string SplitString(std::string &str, const char c)
@@ -79,6 +84,19 @@ public: // Access specifier
         return ret;
     }
 
+    // checks if the Blacklist has been already used or not
+    void checkifBlacklistExsists(std::string location){
+
+        
+        FILE *file;
+        if((file = fopen(location.c_str(), "r"))){
+            fclose(file);
+        }else{
+            file = fopen(location.c_str(), "w");
+            fputs("{\"blacklist\" : []}", file);
+            fclose(file);
+        }
+    }
 
     void process_lock(void)
     {
@@ -108,6 +126,10 @@ public: // Access specifier
         const int ldapVersion = LDAP_VERSION3;
         const std::string username = SplitString(userInput, '\n'); // username
         const std::string password = SplitString(userInput, '\n'); // password
+        if(!matchStringWithRegex(username)){
+            return false;
+        }
+
         // read username (bash: export ldapuser=<yourUsername>)
         char ldapBindUser[256];
         char rawLdapUser[128];
@@ -207,7 +229,7 @@ public: // Access specifier
             ldap_unbind_ext_s(ldapHandle, NULL, NULL);
             return false;
         }
-        CurrentUser = ldapBindUser;
+        CurrentUser = username;
         return true;
     }
     // Takes data provieded by the user and adds them to the datastructure
@@ -219,9 +241,9 @@ public: // Access specifier
         const std::string reciever = SplitString(userInput, '\n'); // reciever
 
         const std::string topic = SplitString(userInput, '\n'); // subject
-        if (topic.length() > 80 || sender.length() > 8 || reciever.length() > 8)
+        if (topic.length() > 80 || reciever.length() > 8)
         {
-            return "ERR\n";
+            return topic + " " +CurrentUser + " " + reciever;
         }
 
         std::stringstream tmp;
@@ -255,7 +277,7 @@ public: // Access specifier
             if (!std::filesystem::create_directory(finaldirectory))
             {
                 std::cout << "Error creating directory" << std::endl;
-                return "ERR\n";
+                return "CREATING DIR ERR\n";
             }
         }
 
@@ -288,7 +310,7 @@ public: // Access specifier
         {
             std::cout << "Error saving Message" << std::endl;
             process_unlock();
-            return "ERR\n";
+            return "SAVING MESS ERR\n";
         }
         process_unlock();
         return "OK\n";
@@ -305,7 +327,7 @@ public: // Access specifier
 
         // Trys to read the file
         std::ifstream user_file(Directory + "/" + CurrentUser + "/datastructure.json", std::ifstream::binary);
-        if( user.length() > 8 || user_file.fail()){
+        if(user_file.fail()){
             return "ERR\n";
         }
         process_lock();
@@ -360,8 +382,6 @@ public: // Access specifier
         if (user_file.fail())
         {
             return "0\n";
-        }else if(user.length() > 8){
-            return "ERR\n";
         }
 
         process_lock();

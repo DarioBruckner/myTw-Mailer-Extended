@@ -35,16 +35,28 @@ std::string get_username()
    return username;
 }
 
+std::string login(){
+   std::string line;
+   std::stringstream ss;
+   ss << "LOGIN\n";
+   printf("Your Username\n");
+   ss << get_username() << "\n";
+
+   printf("Your Password\n");
+   std::getline(std::cin, line);
+
+   ss << line << "\n";
+
+   return ss.str();
+
+}
+
 // Reads a SEND message
 std::string read_send_message()
 {
    std::string line;
    std::stringstream ss;
    ss << "SEND\n";
-
-   // Senders username
-   printf("Your username:\n");
-   ss << get_username() << "\n";
 
    // Recievers username
    printf("Recievers username:\n");
@@ -75,10 +87,6 @@ std::string read_list_message()
    std::stringstream ss;
    ss << "LIST\n";
 
-   // Username
-   printf("Enter the username from which the messages should be listed:\n");
-   ss << get_username() << "\n";
-
    std::cout << "\n\n"
              << ss.str() << "\n";
    return ss.str();
@@ -92,10 +100,7 @@ std::string delete_read_logic()
    std::string line;
    int msg_num;
 
-   // Username
-   printf("Enter the username:\n");
-   ss << get_username() << "\n";
-
+   
    // Message number
    printf("Enter the message number of the message\n");
    do
@@ -342,9 +347,14 @@ int main(int argc, char **argv)
    // readirects to the selected command method
    do
    {
-      std::cout << "\n\nUse one of the following commands: (SEND, LIST, READ, DEL, QUIT)\n\n";
+      std::cout << "\n\nUse one of the following commands: (LOGIN, SEND, LIST, READ, DEL, QUIT)\n\n";
       std::getline(std::cin, line);
-      if (line == "SEND")
+      if(line == "LOGIN"){
+         do{
+            result = login();
+            status = 1;
+         }while(send_and_recieve(status, result, &size, &isError, create_socket, buffer));
+      }else if (line == "SEND")
       {
          do{
             result = read_send_message();
